@@ -5,8 +5,9 @@ using namespace Telegram;
 Message::Message(QJsonObject message)
 {
     id = message.value("message_id").toInt();
-    date = QDateTime::fromMSecsSinceEpoch(message.value("date").toInt());
+    date = QDateTime::fromMSecsSinceEpoch(1000ull*message.value("date").toInt());
     chat = Chat(message.value("chat").toObject());
+    replyToMessage = 0;
 
     /**
     x audio               Audio     Optional. Message is an audio file, information about the file
@@ -32,7 +33,7 @@ Message::Message(QJsonObject message)
         forwardFrom = User(message.value("forward_from").toObject());
     }
     if (message.contains("forward_date")) {
-        forwardDate = QDateTime::fromMSecsSinceEpoch(message.value("forward_date").toInt());
+        forwardDate = QDateTime::fromMSecsSinceEpoch(1000ull*message.value("forward_date").toInt());
     }
     if (message.contains("reply_to_message")) {
         replyToMessage = new Message(message.value("reply_to_message").toObject());
@@ -113,4 +114,9 @@ Message::Message(QJsonObject message)
         boolean = true;
         type = Message::GroupChatCreatedType;
     }
+}
+
+Message::~Message()
+{
+    delete replyToMessage;
 }

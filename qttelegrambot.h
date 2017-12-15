@@ -45,7 +45,7 @@ public:
      * @param pollingTimeout - timeout in sec
      * @param parent
      */
-    explicit Bot(QString token, bool updates = false, quint32 updateInterval = 1000, quint32 pollingTimeout = 0, QObject *parent = 0);
+    explicit Bot(const QString &token, bool updates = false, quint32 updateInterval = 1000, quint32 pollingTimeout = 0, QObject *parent = 0);
     ~Bot();
 
     enum ChatAction { Typing, UploadingPhoto, RecordingVideo, UploadingVideo, RecordingAudio, UploadingAudio, UploadingDocument, FindingLocation };
@@ -68,7 +68,7 @@ public:
      * @return success
      * @see https://core.telegram.org/bots/api#sendmessage
      */
-    bool sendMessage(QVariant chatId, QString text, bool markdown = false, bool disableWebPagePreview = false, qint32 replyToMessageId = -1, const GenericReply &replyMarkup = GenericReply());
+    bool sendMessage(QVariant chatId, const QString &text, bool markdown = false, bool disableWebPagePreview = false, qint32 replyToMessageId = -1, const GenericReply &replyMarkup = GenericReply());
 
     /**
      * Forward messages of any kind.
@@ -102,7 +102,7 @@ public:
      * @return success
      * @see https://core.telegram.org/bots/api#sendphoto
      */
-    bool sendPhoto(QVariant chatId, QString fileId, QString caption = QString(), qint32 replyToMessageId = -1, const GenericReply &replyMarkup = GenericReply());
+    bool sendPhoto(QVariant chatId, const QString &fileId, QString caption = QString(), qint32 replyToMessageId = -1, const GenericReply &replyMarkup = GenericReply());
 
     /**
      * Send audio
@@ -152,7 +152,7 @@ public:
      * @return success
      * @see https://core.telegram.org/bots/api#senddocument
      */
-    bool sendDocument(QVariant chatId, QString fileId, qint32 replyToMessageId = -1, const GenericReply &replyMarkup = GenericReply());
+    bool sendDocument(QVariant chatId, const QString &fileId, qint32 replyToMessageId = -1, const GenericReply &replyMarkup = GenericReply());
 
     /**
      * Send a sticker
@@ -174,7 +174,7 @@ public:
      * @return success
      * @see https://core.telegram.org/bots/api#sendsticker
      */
-    bool sendSticker(QVariant chatId, QString fileId, qint32 replyToMessageId = -1, const GenericReply &replyMarkup = GenericReply());
+    bool sendSticker(QVariant chatId, const QString &fileId, qint32 replyToMessageId = -1, const GenericReply &replyMarkup = GenericReply());
 
     /**
      * Send a video
@@ -200,7 +200,7 @@ public:
      * @return success
      * @see https://core.telegram.org/bots/api#sendvideo
      */
-    bool sendVideo(QVariant chatId, QString fileId, qint64 duration = -1, QString caption = QString(), qint32 replyToMessageId = -1, const GenericReply &replyMarkup = GenericReply());
+    bool sendVideo(QVariant chatId, const QString &fileId, qint64 duration = -1, QString caption = QString(), qint32 replyToMessageId = -1, const GenericReply &replyMarkup = GenericReply());
 
     /**
      * Send a voice
@@ -224,7 +224,7 @@ public:
      * @return success
      * @see https://core.telegram.org/bots/api#sendvoice
      */
-    bool sendVoice(QVariant chatId, QString fileId, qint64 duration = -1, qint32 replyToMessageId = -1, const GenericReply &replyMarkup = GenericReply());
+    bool sendVoice(QVariant chatId, const QString &fileId, qint64 duration = -1, qint32 replyToMessageId = -1, const GenericReply &replyMarkup = GenericReply());
 
     /**
      * Send a location
@@ -258,7 +258,7 @@ public:
       * @param cache_time - The maximum amount of time in seconds that the result of the callback query may be cached client-side.
       *                     Telegram apps will support caching starting in version 3.14. Defaults to 0.
       */
-    bool answerCallbackQuery(QVariant callback_query_id, QString text = QString(), bool show_alert = false, QString url = QString(), quint32 cache_time = 0);
+    bool answerCallbackQuery(QVariant callback_query_id, const QString &text, bool show_alert = false, QString url = QString(), quint32 cache_time = 0);
 
     /**
      * Use this method to get a list of profile pictures for a user.
@@ -287,7 +287,7 @@ public:
      * @return success
      * @see https://core.telegram.org/bots/api#setwebhook
      */
-    bool setWebhook(QString url, QFile *certificate);
+    bool setWebhook(const QString &url, QFile *certificate);
 
     /**
      * Use this method to get basic info about a file and prepare it for downloading.
@@ -295,13 +295,13 @@ public:
      * @return File object
      * @see https://core.telegram.org/bots/api#getfile
      */
-    File getFile(QString fileId);
+    File getFile(const QString &fileId);
 
 private:
     Networking *m_net;
 
     bool _sendPayload(QVariant chatId, QFile *filePayload, ParameterList params, qint32 replyToMessageId, const GenericReply &replyMarkup, QString payloadField, QString endpoint);
-    bool _sendPayload(QVariant chatId, QString textPayload, ParameterList params, qint32 replyToMessageId, const GenericReply &replyMarkup, QString payloadField, QString endpoint);
+    bool _sendPayload(const QVariant &chatId, const QString &textPayload, ParameterList &params, qint32 replyToMessageId, const GenericReply &replyMarkup, QString payloadField, QString endpoint);
 
     QJsonObject jsonObjectFromByteArray(QByteArray json);
     QJsonArray jsonArrayFromByteArray(QByteArray json);

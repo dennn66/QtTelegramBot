@@ -24,8 +24,9 @@ namespace Telegram {
 class Message
 {
 public:
-    Message() {}
+    Message() : id(0), replyToMessage(0), boolean(false) {}
     Message(QJsonObject message);
+    ~Message();
 
     /**
      * @brief Telegram message events

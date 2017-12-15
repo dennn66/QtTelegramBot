@@ -4,7 +4,7 @@
 
 using namespace Telegram;
 
-Networking::Networking(QString token, QObject *parent) :
+Networking::Networking(const QString &token, QObject *parent) :
     QObject(parent),
     m_nam(new QNetworkAccessManager(this)),
     m_token(token)
@@ -16,7 +16,7 @@ Networking::~Networking()
     delete m_nam;
 }
 
-QByteArray Networking::request(QString endpoint, ParameterList params, Networking::Method method)
+QByteArray Networking::request(const QString &endpoint, const ParameterList &params, Networking::Method method)
 {
     if (endpoint.isEmpty()) {
         qWarning("Cannot do request without endpoint");
@@ -37,7 +37,7 @@ QByteArray Networking::request(QString endpoint, ParameterList params, Networkin
 
     QEventLoop loop;
 
-    QNetworkReply *reply;
+    QNetworkReply *reply = 0;
 
     if (method == GET) {
         url.setQuery(parameterListToString(params));
@@ -87,11 +87,11 @@ QUrl Networking::buildUrl(QString endpoint)
     return url;
 }
 
-QByteArray Networking::parameterListToString(ParameterList list)
+QByteArray Networking::parameterListToString(const ParameterList &list)
 {
     QByteArray ret;
 
-    ParameterList::iterator i = list.begin();
+    ParameterList::const_iterator i = list.begin();
     while (i != list.end()) {
         ret.append(i.key() + "=" + i.value().value + "&");
         ++i;
@@ -101,13 +101,13 @@ QByteArray Networking::parameterListToString(ParameterList list)
     return ret;
 }
 
-QByteArray Networking::generateMultipartBoundary(ParameterList list)
+QByteArray Networking::generateMultipartBoundary(const ParameterList &list)
 {
     // Generates a boundary that is not existent in the data
     QByteArray result;
 
     srand((unsigned int) time(NULL));
-    ParameterList::iterator i = list.begin();
+    ParameterList::const_iterator i = list.begin();
     while (i != list.end()) {
         if (i.value().isFile) {
             while (result.isEmpty() || i.value().value.contains(result)) {
@@ -120,11 +120,11 @@ QByteArray Networking::generateMultipartBoundary(ParameterList list)
     return result;
 }
 
-QByteArray Networking::generateMultipartFormData(ParameterList list, QByteArray boundary)
+QByteArray Networking::generateMultipartFormData(const ParameterList &list, const QByteArray &boundary)
 {
     QByteArray result;
 
-    ParameterList::iterator i = list.begin();
+    ParameterList::const_iterator i = list.begin();
     while (i != list.end()) {
         HttpParameter param = i.value();
         result.append("--" + boundary + "\r\n");

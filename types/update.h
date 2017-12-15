@@ -11,7 +11,8 @@ namespace Telegram {
 class Update
 {
 public:
-    Update() {}
+    Update() = delete; //{}
+    Update(const Update&u) : id(u.id), message(u.message), callbackquery(u.callbackquery) {}
     Update(QJsonObject update);
 
     quint32 id;
