@@ -1,6 +1,8 @@
 #ifndef QTTELEGRAMBOT_H
 #define QTTELEGRAMBOT_H
 
+#include <map>
+#include <functional>
 #include <QObject>
 #include <QLoggingCategory>
 #include <QUrl>
@@ -56,6 +58,7 @@ public:
      * @see https://core.telegram.org/bots/api#getme
      */
     User getMe();
+    bool asyncGetMe();
 
     /**
      * Send text message.
@@ -295,7 +298,7 @@ public:
      * @return File object
      * @see https://core.telegram.org/bots/api#getfile
      */
-    File getFile(const QString &fileId);
+    bool asyncGetFile(const QString &fileId);
 
 private:
     Networking *m_net;
@@ -312,12 +315,16 @@ private:
     quint32 m_updateInterval;
     quint32 m_updateOffset;
     quint32 m_pollingTimeout;
+    std::map<QNetworkReply*, std::function<void(QNetworkReply*)>> _pendingReplies;
 
-
+private slots:
+    void requestFinished(QNetworkReply *reply);
 
 signals:
+    void getMe(User user);
     void message(Message message);
     void update(Update update);
+    void file(File file);
 };
 
 }

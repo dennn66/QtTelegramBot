@@ -1,3 +1,5 @@
+#include <QThread>
+#include <QCoreApplication>
 #include "qttelegrambot.h"
 
 using namespace Telegram;
@@ -13,6 +15,9 @@ Bot::Bot(const QString &token, bool updates, quint32 updateInterval, quint32 pol
 {
     QLoggingCategory::setFilterRules("qt.network.ssl.warning=false");
 
+    connect(m_net, SIGNAL(requestFinished(QNetworkReply*)),
+            this, SLOT(requestFinished(QNetworkReply*)));
+
     if (updates) {
         m_internalUpdateTimer->setSingleShot(true);
         connect(m_internalUpdateTimer, &QTimer::timeout, this, &Bot::internalGetUpdates);
@@ -23,26 +28,68 @@ Bot::Bot(const QString &token, bool updates, quint32 updateInterval, quint32 pol
 Bot::~Bot()
 {
     m_internalUpdateTimer->stop();
+    delete m_internalUpdateTimer;
+    m_internalUpdateTimer = 0;
+
+    if(_pendingReplies.size()) {
+        qWarning() << __PRETTY_FUNCTION__ << "got replies pending" << _pendingReplies.size();
+        while(_pendingReplies.size()) {
+            QCoreApplication::instance()->processEvents(QEventLoop::AllEvents, 1000);
+            QThread::msleep(100);
+        }
+        qDebug() << __PRETTY_FUNCTION__ << "processed all replies pending" << _pendingReplies.size();
+    }
+    disconnect(m_net, SIGNAL(requestFinished(QNetworkReply*)),
+               this, SLOT(requestFinished(QNetworkReply*)));
     delete m_net;
 }
 
-User Bot::getMe()
+void Bot::requestFinished(QNetworkReply *reply)
 {
-    QJsonObject json = this->jsonObjectFromByteArray(
-                m_net->request(ENDPOINT_GET_ME, ParameterList(), Networking::GET));
-
-    User ret;
-    ret.id = json.value("id").toInt();
-    ret.firstname = json.value("first_name").toString();
-    ret.lastname = json.value("last_name").toString();
-    ret.username = json.value("username").toString();
-
-    if (ret.id == 0 || ret.firstname.isEmpty()) {
-        qCritical("%s", qPrintable("Got invalid user in " + QString(ENDPOINT_GET_ME)));
-        return User();
+    if(!reply)
+        qWarning() << __PRETTY_FUNCTION__ << "null reply!";
+    else {
+        // search in map
+        auto it = _pendingReplies.find(reply);
+        if (it != _pendingReplies.end()) {
+            auto &fn = (*it).second;
+            fn(reply);
+            _pendingReplies.erase(reply);
+        } else {
+            qWarning() <<__PRETTY_FUNCTION__ << "couldnt find reply in pendingrepies map!" << reply;
+        }
+        reply->deleteLater();
     }
+}
 
-    return ret;
+bool Bot::asyncGetMe()
+{
+    auto reply = m_net->asyncRequest(ENDPOINT_GET_ME,ParameterList(), Networking::GET);
+    if (!reply) return false;
+    _pendingReplies.insert(std::make_pair(reply,
+                                          [this](QNetworkReply *reply) {
+                               if (reply->error() != QNetworkReply::NoError) {
+                                   qCritical("%s", qPrintable(QString("[%1] %2").arg(reply->error()).arg(reply->errorString())));
+                                   return;
+                               }
+                               QByteArray arr = reply->readAll();
+                               QJsonObject json = jsonObjectFromByteArray(arr);
+                               User ret;
+
+                               ret.id = json.value("id").toInt();
+                               ret.firstname = json.value("first_name").toString();
+                               ret.lastname = json.value("last_name").toString();
+                               ret.username = json.value("username").toString();
+
+                               if (ret.id == 0 || ret.firstname.isEmpty()) {
+                                   qCritical("%s", qPrintable("Got invalid user in " + QString(ENDPOINT_GET_ME)));
+                                   emit getMe(User());
+                               }else
+                               emit getMe(ret);
+
+                           }
+                           ));
+    return true;
 }
 
 bool Bot::sendMessage(QVariant chatId, const QString &text, bool markdown, bool disableWebPagePreview, qint32 replyToMessageId, const GenericReply &replyMarkup)
@@ -65,9 +112,22 @@ bool Bot::forwardMessage(QVariant chatId, quint32 fromChatId, quint32 messageId)
     params.insert("from_chat_id", HttpParameter(fromChatId));
     params.insert("message_id", HttpParameter(messageId));
 
-    bool success = this->responseOk(m_net->request(ENDPOINT_FORWARD_MESSAGE, params, Networking::POST));
-
-    return success;
+   auto reply = m_net->asyncRequest(ENDPOINT_FORWARD_MESSAGE, params, Networking::POST);
+   if (!reply) return false;
+   _pendingReplies.insert(std::make_pair(reply,
+                                         [this](QNetworkReply *reply) {
+                              if (reply->error() != QNetworkReply::NoError) {
+                                  qCritical("%s", qPrintable(QString("[%1] %2").arg(reply->error()).arg(reply->errorString())));
+                                  return; // todo emit signal here?
+                              }
+                              QByteArray arr = reply->readAll();
+                              bool success = responseOk(arr);
+                              if (!success)
+                              qWarning() << "_sendPayload no success" << reply;
+                              // emit getMe(ret); todo emit a signal here
+                          }
+                          ));
+   return true;
 }
 
 bool Bot::sendPhoto(QVariant chatId, QFile *file, QString caption, qint32 replyToMessageId, const GenericReply &replyMarkup)
@@ -173,11 +233,25 @@ bool Bot::sendLocation(QVariant chatId, float latitude, float longitude, qint32 
     params.insert("chat_id", HttpParameter(chatId));
     params.insert("latitude", HttpParameter(latitude));
     params.insert("longitude", HttpParameter(longitude));
-    if (replyToMessageId >= 0) params.insert("reply_to_message_id", HttpParameter(replyToMessageId));
+    if (replyToMessageId >= 0) params.insert("reply_to_message_id", HttpParameter(replyToMessageId));     
 
-    bool success = this->responseOk(m_net->request(ENDPOINT_SEND_LOCATION, params, Networking::POST));
+    auto reply = m_net->asyncRequest(ENDPOINT_SEND_LOCATION, params, Networking::POST);
+    if (!reply) return false;
+    _pendingReplies.insert(std::make_pair(reply,
+                                          [this](QNetworkReply *reply) {
+                               if (reply->error() != QNetworkReply::NoError) {
+                                   qCritical("%s", qPrintable(QString("[%1] %2").arg(reply->error()).arg(reply->errorString())));
+                                   return; // todo emit signal here?
+                               }
+                               QByteArray arr = reply->readAll();
+                               bool success = responseOk(arr);
+                               if (!success)
+                               qWarning() << "_sendPayload no success" << reply;
+                               // emit getMe(ret); todo emit a signal here
+                           }
+                           ));
 
-    return success;
+    return true;
 }
 
 bool Bot::sendChatAction(QVariant chatId, Bot::ChatAction action)
@@ -218,9 +292,22 @@ bool Bot::sendChatAction(QVariant chatId, Bot::ChatAction action)
         return false;
     }
 
-    bool success = this->responseOk(m_net->request(ENDPOINT_SEND_CHAT_ACTION, params, Networking::POST));
-
-    return success;
+    auto reply = m_net->asyncRequest(ENDPOINT_SEND_CHAT_ACTION, params, Networking::POST);
+    if (!reply) return false;
+    _pendingReplies.insert(std::make_pair(reply,
+                                          [this](QNetworkReply *reply) {
+                               if (reply->error() != QNetworkReply::NoError) {
+                                   qCritical("%s", qPrintable(QString("[%1] %2").arg(reply->error()).arg(reply->errorString())));
+                                   return; // todo emit signal here?
+                               }
+                               QByteArray arr = reply->readAll();
+                               bool success = responseOk(arr);
+                               if (!success)
+                               qWarning() << "_sendPayload no success" << reply;
+                               // emit getMe(ret); todo emit a signal here
+                           }
+                           ));
+    return true;
 }
 
 bool Bot::answerCallbackQuery(QVariant callback_query_id, const QString &text, bool show_alert, QString url, quint32 cache_time)
@@ -231,9 +318,25 @@ bool Bot::answerCallbackQuery(QVariant callback_query_id, const QString &text, b
     if (show_alert) params.insert("show_alert", HttpParameter(show_alert));
     if (!url.isEmpty()) params.insert("url", HttpParameter(url));
     if (cache_time) params.insert("cache_time", HttpParameter(cache_time));
-    return  this->responseOk(m_net->request(ENDPOINT_ANSWER_CALLBACK_QUERY, params, Networking::POST));
-}
 
+    auto reply = m_net->asyncRequest(ENDPOINT_ANSWER_CALLBACK_QUERY, params, Networking::POST);
+    if (!reply) return false;
+    _pendingReplies.insert(std::make_pair(reply,
+                                          [this](QNetworkReply *reply) {
+                               if (reply->error() != QNetworkReply::NoError) {
+                                   qCritical("%s", qPrintable(QString("[%1] %2").arg(reply->error()).arg(reply->errorString())));
+                                   return; // todo emit signal here?
+                               }
+                               QByteArray arr = reply->readAll();
+                               bool success = responseOk(arr);
+                               if (!success)
+                               qWarning() << "_sendPayload no success" << reply;
+                               // emit getMe(ret); todo emit a signal here
+                           }
+                           ));
+    return true;
+}
+/*
 UserProfilePhotos Bot::getUserProfilePhotos(quint32 userId, qint16 offset, qint8 limit)
 {
     ParameterList params;
@@ -263,22 +366,7 @@ UserProfilePhotos Bot::getUserProfilePhotos(quint32 userId, qint16 offset, qint8
 
     return ret;
 }
-
-QList<Update> Bot::getUpdates(quint32 timeout, quint32 limit, quint32 offset)
-{
-    ParameterList params;
-    params.insert("offset", HttpParameter(offset));
-    params.insert("limit", HttpParameter(limit));
-    params.insert("timeout", HttpParameter(timeout));
-    QJsonArray json = this->jsonArrayFromByteArray(m_net->request(ENDPOINT_GET_UPDATES, params, Networking::GET));
-
-    QList<Update> ret = QList<Update>();
-    foreach (QJsonValue value, json) {
-        ret.append(Update(value.toObject()));
-    }
-
-    return ret;
-}
+*/
 
 bool Bot::setWebhook(const QString &url, QFile *certificate)
 {
@@ -298,20 +386,44 @@ bool Bot::setWebhook(const QString &url, QFile *certificate)
     if (openedFile) certificate->close();
     params.insert("certificate", HttpParameter(data, true, db.mimeTypeForData(data).name(), certificate->fileName()));
 
-    bool success = this->responseOk(m_net->request(ENDPOINT_SET_WEBHOOK, params, Networking::UPLOAD));
-
-    return success;
+   auto reply = m_net->asyncRequest(ENDPOINT_SET_WEBHOOK, params, Networking::UPLOAD);
+   if (!reply) return false;
+   _pendingReplies.insert(std::make_pair(reply,
+                                         [this](QNetworkReply *reply) {
+                              if (reply->error() != QNetworkReply::NoError) {
+                                  qCritical("%s", qPrintable(QString("[%1] %2").arg(reply->error()).arg(reply->errorString())));
+                                  return; // todo emit signal here?
+                              }
+                              QByteArray arr = reply->readAll();
+                              bool success = responseOk(arr);
+                              if (!success)
+                              qWarning() << "_sendPayload no success" << reply;
+                              // emit getMe(ret); todo emit a signal here
+                          }
+                          ));
+   return true;
 }
 
-File Bot::getFile(const QString &fileId)
+bool Bot::asyncGetFile(const QString &fileId)
 {
     ParameterList params;
     params.insert("file_id", HttpParameter(fileId));
-
-    QJsonObject json = this->jsonObjectFromByteArray(m_net->request(ENDPOINT_GET_FILE, params, Networking::GET));
-
-    return File(json.value("file_id").toString(), json.value("file_size").toInt(-1), json.value("file_path").toString());
+    auto reply = m_net->asyncRequest(ENDPOINT_GET_FILE, params, Networking::GET);
+    if (!reply) return false;
+    _pendingReplies.insert(std::make_pair(reply,
+                                          [this](QNetworkReply *reply) {
+                               if (reply->error() != QNetworkReply::NoError) {
+                                   qCritical("%s", qPrintable(QString("[%1] %2").arg(reply->error()).arg(reply->errorString())));
+                                   return; // todo emit signal here?
+                               }
+                               QByteArray arr = reply->readAll();
+                               QJsonObject json = jsonObjectFromByteArray(arr);
+                               file(File(json.value("file_id").toString(), json.value("file_size").toInt(-1), json.value("file_path").toString()));
+                           }
+                           ));
+    return true;
 }
+
 
 bool Bot::_sendPayload(QVariant chatId, QFile *filePayload, ParameterList params, qint32 replyToMessageId, const GenericReply &replyMarkup, QString payloadField, QString endpoint)
 {
@@ -338,9 +450,22 @@ bool Bot::_sendPayload(QVariant chatId, QFile *filePayload, ParameterList params
     if (replyToMessageId >= 0) params.insert("reply_to_message_id", HttpParameter(replyToMessageId));
     if (replyMarkup.isValid()) params.insert("reply_markup", HttpParameter(replyMarkup.serialize()));
 
-    bool success = this->responseOk(m_net->request(endpoint, params, Networking::UPLOAD));
-
-    return success;
+    auto reply = m_net->asyncRequest(endpoint, params, Networking::UPLOAD);
+    if (!reply) return false;
+    _pendingReplies.insert(std::make_pair(reply,
+                                          [this](QNetworkReply *reply) {
+                               if (reply->error() != QNetworkReply::NoError) {
+                                   qCritical("%s", qPrintable(QString("[%1] %2").arg(reply->error()).arg(reply->errorString())));
+                                   return; // todo emit signal here?
+                               }
+                               QByteArray arr = reply->readAll();
+                               bool success = responseOk(arr);
+                               if (!success)
+                               qWarning() << "_sendPayload no success" << reply;
+                               // emit getMe(ret); todo emit a signal here
+                           }
+                           ));
+    return true;
 }
 
 bool Bot::_sendPayload(const QVariant &chatId, const QString &textPayload, ParameterList &params, qint32 replyToMessageId, const GenericReply &replyMarkup, QString payloadField, QString endpoint)
@@ -354,9 +479,22 @@ bool Bot::_sendPayload(const QVariant &chatId, const QString &textPayload, Param
     if (replyToMessageId >= 0) params.insert("reply_to_message_id", HttpParameter(replyToMessageId));
     if (replyMarkup.isValid()) params.insert("reply_markup", HttpParameter(replyMarkup.serialize()));
 
-    bool success = this->responseOk(m_net->request(endpoint, params, Networking::POST));
-
-    return success;
+    auto reply = m_net->asyncRequest(endpoint, params, Networking::POST);
+    if (!reply) return false;
+    _pendingReplies.insert(std::make_pair(reply,
+                                          [this](QNetworkReply *reply) {
+                               if (reply->error() != QNetworkReply::NoError) {
+                                   qCritical("%s", qPrintable(QString("[%1] %2").arg(reply->error()).arg(reply->errorString())));
+                                   return; // todo emit signal here?
+                               }
+                               QByteArray arr = reply->readAll();
+                               bool success = responseOk(arr);
+                               if (!success)
+                               qWarning() << "_sendPayload no success" << reply;
+                               // emit getMe(ret); todo emit a signal here
+                           }
+                           ));
+    return true;
 }
 
 QJsonObject Bot::jsonObjectFromByteArray(QByteArray json)
@@ -405,15 +543,35 @@ bool Bot::responseOk(QByteArray json)
 
 void Bot::internalGetUpdates()
 {
-    QList<Update> updates = getUpdates(m_pollingTimeout, 50, m_updateOffset);
-    
-    foreach (Update u, updates) {
-        // change updateOffset to u.id to avoid duplicate updates
-        m_updateOffset = (u.id >= m_updateOffset ? u.id + 1 : m_updateOffset);
-        
-        emit message(u.message);
-        emit update(u);
+    ParameterList params;
+    params.insert("offset", HttpParameter(m_updateOffset));
+    params.insert("limit", HttpParameter(50));
+    params.insert("timeout", HttpParameter(m_pollingTimeout));
+    auto reply = m_net->asyncRequest(ENDPOINT_GET_UPDATES, params, Networking::GET);
+    if (!reply) {
+        qWarning() << __PRETTY_FUNCTION__ << "request failed";
+        if (m_internalUpdateTimer)
+            m_internalUpdateTimer->start(m_updateInterval);
+        return;
     }
-    
-    m_internalUpdateTimer->start(m_updateInterval);
+    _pendingReplies.insert(std::make_pair(reply,
+                                          [this](QNetworkReply *reply) {
+                               if (reply->error() != QNetworkReply::NoError) {
+                                   qCritical("%s", qPrintable(QString("[%1] %2").arg(reply->error()).arg(reply->errorString())));
+                                   if (m_internalUpdateTimer)
+                                   m_internalUpdateTimer->start(m_updateInterval);
+                                   return;
+                               }
+                               QByteArray arr = reply->readAll();
+                               QJsonArray json = this->jsonArrayFromByteArray(arr);
+                               foreach (QJsonValue value, json) {
+                                   Update u(Update(value.toObject()));
+                                   m_updateOffset = (u.id >= m_updateOffset ? u.id + 1 : m_updateOffset);
+                                   emit message(u.message);
+                                   emit update(u);
+                               }
+                               if (m_internalUpdateTimer)
+                               m_internalUpdateTimer->start(m_updateInterval);
+                           }
+                           ));
 }

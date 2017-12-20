@@ -57,7 +57,7 @@ public:
 
     enum Method { GET = 1, POST, UPLOAD };
 
-    QByteArray request(const QString &endpoint, const ParameterList &params, Method method);
+    QNetworkReply* asyncRequest(const QString &endpoint, const ParameterList &params, Method method);
 
 private:
     QNetworkAccessManager *m_nam;
@@ -69,6 +69,8 @@ private:
     QByteArray generateMultipartBoundary(const ParameterList &list);
     QByteArray generateMultipartFormData(const ParameterList &list, const QByteArray &boundary);
     QString generateRandomString(int length);
+signals:
+    void requestFinished(QNetworkReply *reply); // calle reply->deleteLater() once done with the reply!
 };
 
 }
