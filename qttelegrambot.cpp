@@ -15,6 +15,10 @@ Bot::Bot(const QString &token, bool updates, quint32 updateInterval, quint32 pol
 {
     QLoggingCategory::setFilterRules("qt.network.ssl.warning=false");
 
+    //Register classes to use in signal/slot
+    qRegisterMetaType<Message>("Message");
+    qRegisterMetaType<User>("User");
+
     connect(m_net, SIGNAL(requestFinished(QNetworkReply*)),
             this, SLOT(requestFinished(QNetworkReply*)));
 

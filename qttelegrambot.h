@@ -329,4 +329,8 @@ signals:
 
 }
 
+//Register classes to use in QVariant
+Q_DECLARE_METATYPE(Telegram::Message)
+Q_DECLARE_METATYPE(Telegram::User)
+
 #endif // QTTELEGRAMBOT_H
